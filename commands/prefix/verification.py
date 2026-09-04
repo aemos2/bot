@@ -80,7 +80,7 @@ async def assign_verified_role(member: discord.Member, guild: discord.Guild) -> 
             except Exception:
                 pass
 
-    return True, f"You have been verified and given the **{role.name}** role."
+    return True, f"Verified."
 
 
 # -------------------- Button verification --------------------
@@ -314,7 +314,7 @@ class VerificationPrefix(commands.Cog):
             embed = discord.Embed(
                 title="Server Verification",
                 description=(
-                    "Click **Start Captcha** below and solve a short puzzle to gain access.\n\n"
+                    "Click **Start Captcha** below and solve a short puzzle to gain access. if you are dumb as fuck, message me.\n\n"
                     "By verifying, you confirm that you have read and agree to the server rules."
                 ),
                 color=discord.Color.blurple(),
