@@ -1,5 +1,5 @@
 """
-Main entry point for the Executor Status Discord bot.
+Main entry point for the Executor Status Discord bot + Wave AI.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import logging
 import os
 from pathlib import Path
 
+import aiohttp
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
@@ -27,6 +28,8 @@ from utils.weao import (
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN is not set. Create a .env file from .env.example.")
 
@@ -37,15 +40,72 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bot")
 
+# Wave AI settings
+MODEL = "openai/gpt-4o-mini"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.dm_messages = True
 
 bot = commands.Bot(
     command_prefix="!",
     intents=intents,
     help_command=None,
 )
+
+
+# ---------------------------------------------------------------------------
+# Wave AI helper
+# ---------------------------------------------------------------------------
+
+async def ask_wave(prompt: str) -> str:
+    if not OPENROUTER_API_KEY:
+        return "yo api key missing, fix the .env"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/yourusername/executor-status-bot",
+        "X-Title": "Wave AI",
+    }
+
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": """You are Skibidi, a super chill and nonchalant Roblox scripting assistant from the Skibidi Hub ecosystem.
+
+Personality:
+- Extremely chill and low-key
+- Talks short and dry, almost lazy
+- Never overhype or get excited
+- Uses short replies like "sup", "yo", "bet", "aight", "fs", "ion know", etc.
+- Still knowledgeable AF about Lua, executors (Solara, Synapse, Krnl, etc.), game mechanics, exploits and anti-cheat
+- Only gives longer answers when the user actually asks a real question
+- Never sounds try-hard or corny
+
+Keep almost every reply short and nonchalant unless they ask for actual help.""",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(OPENROUTER_URL, headers=headers, json=payload) as resp:
+            data = await resp.json()
+
+            if resp.status != 200:
+                error_msg = data.get("error", {}).get("message", "Unknown error")
+                logger.error("OpenRouter error: %s", error_msg)
+                return "sum went wrong talking to the ai 💀"
+
+            return data["choices"][0]["message"]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +249,7 @@ async def before_checkers():
 @bot.event
 async def on_ready():
     logger.info("Logged in as %s (ID: %s)", bot.user, bot.user.id if bot.user else "?")
+    logger.info("Wave AI ready (model: %s)", MODEL)
 
     from commands.prefix.verification import VerifyButton, CaptchaStartView
     bot.add_view(VerifyButton())
@@ -206,6 +267,46 @@ async def on_ready():
     if not check_roblox_updates.is_running():
         check_roblox_updates.start()
         logger.info("Roblox update checker started")
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    # Ignore other bots
+    if message.author.bot:
+        return
+
+    # Let prefix commands still work
+    await bot.process_commands(message)
+
+    # Wave AI — only when mentioned or in DMs
+    is_mentioned = bot.user and bot.user in message.mentions
+    is_dm = isinstance(message.channel, discord.DMChannel)
+
+    if not is_mentioned and not is_dm:
+        return
+
+    # Strip the bot mention
+    prompt = message.content
+    if bot.user:
+        prompt = prompt.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "")
+    prompt = prompt.strip()
+
+    if not prompt:
+        await message.reply("yo")
+        return
+
+    async with message.channel.typing():
+        try:
+            reply = await ask_wave(prompt)
+
+            if len(reply) > 2000:
+                for i in range(0, len(reply), 1990):
+                    await message.reply(reply[i : i + 1990])
+            else:
+                await message.reply(reply)
+        except Exception as e:
+            logger.error("Wave AI error: %s", e)
+            await message.reply("sum went wrong 💀")
 
 
 @bot.event
